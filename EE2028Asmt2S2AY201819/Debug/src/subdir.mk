@@ -20,7 +20,7 @@ C_DEPS += \
 src/%.o: ../src/%.c
 	@echo 'Building file: $<'
 	@echo 'Invoking: MCU C Compiler'
-	arm-none-eabi-gcc -DDEBUG -D__USE_CMSIS=CMSISv1p30_LPC17xx -D__CODE_RED -D__NEWLIB__ -I"F:\EE2024workspace\Lib_CMSISv1p30_LPC17xx\inc" -I"F:\EE2024workspace\Lib_EaBaseBoard\inc" -I"F:\EE2024workspace\Lib_MCU\inc" -O0 -g3 -Wall -c -fmessage-length=0 -fno-builtin -ffunction-sections -mcpu=cortex-m3 -mthumb -MMD -MP -MF"$(@:%.o=%.d)" -MT"$(@:%.o=%.d)" -o"$@" "$<"
+	arm-none-eabi-gcc -DDEBUG -D__USE_CMSIS=CMSISv1p30_LPC17xx -D__CODE_RED -D__NEWLIB__ -I"C:\Users\ongwk\OneDrive\Documents\NUS\Y3S2\EE2028\Labs\Lib_CMSISv1p30_LPC17xx\inc" -I"C:\Users\ongwk\OneDrive\Documents\NUS\Y3S2\EE2028\Labs\Lib_EaBaseBoard\inc" -I"C:\Users\ongwk\OneDrive\Documents\NUS\Y3S2\EE2028\Labs\Lib_MCU\inc" -O0 -g3 -Wall -c -fmessage-length=0 -fno-builtin -ffunction-sections -mcpu=cortex-m3 -mthumb -MMD -MP -MF"$(@:%.o=%.d)" -MT"$(@:%.o=%.d)" -o "$@" "$<"
 	@echo 'Finished building: $<'
 	@echo ' '
 
