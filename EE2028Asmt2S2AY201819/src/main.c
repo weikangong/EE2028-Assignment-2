@@ -75,11 +75,11 @@ const uint8_t ORBIT_TO_LANDING_MODE_MESSAGE[][40] =
 	};
 uint8_t LANDING_MODE_MESSAGE[][40] =
 	{{'L', 'A', 'N', 'D', 'I', 'N', 'G'},
-	 {' 1'},
-	 {' 2'},
-	 {' 3'},
-	 {' 4'},
-	 {' 5'}};
+	 {' '},
+	 {' '},
+	 {' '},
+	 {' '},
+	 {' '}};
 uint8_t EXPLORING_MODE_MESSAGE[][40] =
 	{{'E', 'X', 'P', 'L', 'O', 'R', 'I', 'N', 'G'},
 	 {' '},
