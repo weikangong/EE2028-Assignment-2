@@ -53,24 +53,48 @@ uint8_t FLAG = 0;
 
 const uint8_t CHAR_HEIGHT = 12;
 const uint32_t LIGHT_THRESHOLD = 30;
-const uint8_t ORBIT_MODE_MESSAGE[][40] = { { 'O', 'r', 'b', 'i', 't', 'i', 'n',
-		'g', ' ', 'M', 'o', 'd', 'e', '.' }, { 'P', 'r', 'e', 's', 's', ' ',
-		'S', 'W', '3', ' ', 't', 'o' }, { 'L', 'a', 'n', 'd' }, { ' ' },
-		{ ' ' }, { ' ' } };
-const uint8_t ORBIT_TO_LANDING_MODE_MESSAGE[][40] = { { 'E', 'N', 'T', 'E', 'R',
-		'I', 'N', 'G' }, { 'L', 'A', 'N', 'D', 'I', 'N', 'G', ' ', 'M', 'O',
-		'D', 'E' }, { ' ' }, { ' ' }, { ' ' }, { ' ' } };
-uint8_t LANDING_MODE_MESSAGE[][40] = { { 'L', 'A', 'N', 'D', 'I', 'N', 'G' }, {
-		' ' }, { ' ' }, { ' ' }, { ' ' }, { ' ' } };
-uint8_t EXPLORING_MODE_MESSAGE[][40] = { { 'E', 'X', 'P', 'L', 'O', 'R', 'I',
-		'N', 'G' }, { ' ' }, { ' ' }, { ' ' }, { ' ' }, { ' ' } };
-uint8_t SLEEPING_MODE_MESSAGE[][40] = {
-		{ 'S', 'L', 'E', 'E', 'P', 'I', 'N', 'G' }, { ' ' }, { ' ' }, { ' ' }, {
-				' ' }, { ' ' } };
-const uint8_t invertedNums[] = { 0x24, 0x7D, 0xE0, 0x70, 0x39, 0x32, 0x23, 0x7C,
-		0x20, 0x38, };
+const uint8_t ORBIT_MODE_MESSAGE[][40] =
+	{{'O', 'r', 'b', 'i', 't', 'i', 'n', 'g', ' ', 'M', 'o', 'd', 'e', '.'},
+	 {'P', 'r', 'e', 's', 's', ' ', 'S', 'W', '3', ' ', 't', 'o'},
+	 {'L', 'a', 'n', 'd'},
+	 {' '},
+	 {' '},
+	 {' '}
+	};
+const uint8_t ORBIT_TO_LANDING_MODE_MESSAGE[][40] =
+	{{'E', 'N', 'T', 'E', 'R', 'I', 'N', 'G'},
+	 {'L', 'A', 'N', 'D', 'I', 'N', 'G', ' ', 'M', 'O', 'D', 'E'},
+	 {' '},
+	 {' '},
+	 {' '},
+	 {' '}
+	};
+uint8_t LANDING_MODE_MESSAGE[][40] =
+	{{'L', 'A', 'N', 'D', 'I', 'N', 'G'},
+	 {' '},
+	 {' '},
+	 {' '},
+	 {' '},
+	 {' '}};
+uint8_t EXPLORING_MODE_MESSAGE[][40] =
+	{{'E', 'X', 'P', 'L', 'O', 'R', 'I', 'N', 'G'},
+	 {' '},
+	 {' '},
+	 {' '},
+	 {' '},
+	 {' '}};
+uint8_t SLEEPING_MODE_MESSAGE[][40] =
+	{{'S', 'L', 'E', 'E', 'P', 'I', 'N', 'G'},
+	 {' '},
+	 {' '},
+	 {' '},
+	 {' '},
+	 {' '}};
+const uint8_t invertedNums[] = {
+	0x24, 0x7D, 0xE0, 0x70, 0x39, 0x32, 0x23, 0x7C, 0x20, 0x38,
+};
 
-static unsigned char TILT_THRESHOLD_TXT[] = "Poor Landing Altitude \r\n";
+static unsigned char TILT_TRESHOLD_TXT[] = "Poor Landing Attitude \r\n";
 static unsigned char TILT_CLEAR_TXT[] = "Safe to Land! \r\n";
 static unsigned char ORBITING_TXT[] = "Start Orbiting, waiting for Landing \r\n";
 static unsigned char LANDING_TXT[] = "LANDING Mode \r\n";
@@ -87,6 +111,30 @@ static uint8_t SLEEPING_FLAG = 1;
 static uint8_t TILT_FLAG = 1;
 static uint8_t TILT_CLEAR_FLAG = 0;
 static uint8_t ACC_FLAG = 0;
+
+unsigned int getPrescalarForUs(uint8_t timerPclkBit) {
+    unsigned int pclk,prescalarForUs;
+    pclk = (LPC_SC->PCLKSEL0 >> timerPclkBit) & 0x03;  // get the pclk info for required timer
+
+    switch (pclk) { // Decode the bits to determine the pclk
+    case 0x00:
+        pclk = SystemCoreClock/4;
+        break;
+    case 0x01:
+        pclk = SystemCoreClock;
+        break;
+    case 0x02:
+        pclk = SystemCoreClock/2;
+        break;
+    case 0x03:
+        pclk = SystemCoreClock/8;
+        break;
+    default:
+        pclk = SystemCoreClock/4;
+        break;
+    }
+    return pclk/1000000 - 1; // Prescalar for 1us (1000000Counts/sec)
+}
 
 void SysTick_Handler(void) {
 	msTicks++;
@@ -115,18 +163,18 @@ static void pinsel_uart3(void) {
 	PINSEL_ConfigPin(&PinCfg);
 }
 
-void init_uart(void) {
-	UART_CFG_Type uartCfg;
-	uartCfg.Baud_rate = 115200;
-	uartCfg.Databits = UART_DATABIT_8;
-	uartCfg.Parity = UART_PARITY_NONE;
-	uartCfg.Stopbits = UART_STOPBIT_1;
-	//pin select for uart3;
-	pinsel_uart3();
-	//supply power & setup working parameters for uart3
-	UART_Init(LPC_UART3, &uartCfg);
-	//enable transmit for uart3
-	UART_TxCmd(LPC_UART3, ENABLE);
+void init_uart(void){
+    UART_CFG_Type uartCfg;
+    uartCfg.Baud_rate = 115200;
+    uartCfg.Databits = UART_DATABIT_8;
+    uartCfg.Parity = UART_PARITY_NONE;
+    uartCfg.Stopbits = UART_STOPBIT_1;
+    // Pin select for uart3;
+    pinsel_uart3();
+    // Supply power & setup working parameters for uart3
+    UART_Init(LPC_UART3, &uartCfg);
+    // Enable transmit for uart3
+    UART_TxCmd(LPC_UART3, ENABLE);
 }
 
 static void init_ssp(void) {
@@ -183,21 +231,21 @@ static void init_i2c(void) {
 }
 
 static void init_GPIO(void) {
-	// SW4: P1.31
+	// SW3: P2.10
 	PINSEL_CFG_Type PinCfg;
 	PinCfg.Funcnum = 0;
 	PinCfg.OpenDrain = 0;
 	PinCfg.Pinmode = 0;
-	PinCfg.Portnum = 1;
-	PinCfg.Pinnum = 31;
-	PINSEL_ConfigPin(&PinCfg);
-	GPIO_SetDir(1, 1 << 31, 0);
-
-	// SW3: P2.10
 	PinCfg.Portnum = 2;
 	PinCfg.Pinnum = 10;
 	PINSEL_ConfigPin(&PinCfg);
 	GPIO_SetDir(2, 1 << 10, 0);
+
+	// SW4: P1.31
+	PinCfg.Portnum = 1;
+	PinCfg.Pinnum = 31;
+	PINSEL_ConfigPin(&PinCfg);
+	GPIO_SetDir(1, 1<<31, 0);
 
 	// Red LED: P2.0
 	PinCfg.Portnum = 2;
@@ -211,7 +259,7 @@ static void init_GPIO(void) {
 	PINSEL_ConfigPin(&PinCfg);
 	GPIO_SetDir(0, (1 << 26), 1);
 
-	// Green LED: p2.1
+	// Green LED: P2.1
 	PinCfg.Portnum = 2;
 	PinCfg.Pinnum = 1;
 	PINSEL_ConfigPin(&PinCfg);
@@ -224,47 +272,32 @@ static void init_GPIO(void) {
 //	GPIO_SetDir(2,(1<<5),0);
 }
 
-unsigned int getPrescalarForUs(uint8_t timerPclkBit) {
-	unsigned int pclk, prescalarForUs;
-	pclk = (LPC_SC ->PCLKSEL0 >> timerPclkBit) & 0x03; // get the pclk info for required timer
-
-	switch (pclk) { // Decode the bits to determine the pclk
-	case 0x00:
-		pclk = SystemCoreClock / 4;
-		break;
-	case 0x01:
-		pclk = SystemCoreClock;
-		break;
-	case 0x02:
-		pclk = SystemCoreClock / 2;
-		break;
-	case 0x03:
-		pclk = SystemCoreClock / 8;
-		break;
-	default:
-		pclk = SystemCoreClock / 4;
-		break;
-	}
-	return pclk / 1000000 - 1; // Prescalar for 1us (1000000Counts/sec)
-}
-
 void interrupt_init(void) {
-	LPC_GPIOINT ->IO2IntEnF |= 1 << 10; // Enable P2.10 interrupt
-//    LPC_GPIOINT->IO2IntEnF |= 1<<5; // Enable P2.5 interrupt
+	// Clear and enable SW3 interrupt
+	LPC_GPIOINT->IO0IntClr = 1<<4;
+	LPC_GPIOINT->IO0IntEnR |= 1<<4;
 
-	// timer1_init
-	LPC_SC ->PCONP |= (1 << SBIT_TIMER0); // Power ON Timer0, 1
+	// Clear and enable SW4 interrupt
+	LPC_GPIOINT->IO2IntClr = 1<<10;
+    LPC_GPIOINT->IO2IntEnR |= 1<<10;
+
+    // Enable P2.5 interrupt
+	LPC_GPIOINT->IO2IntClr = 1<<5;
+    LPC_GPIOINT->IO2IntEnR |= 1<<5;
+
+    // Enable Timer1 interrupt
+    LPC_SC->PCONP |= (1<<SBIT_TIMER0); // Power ON Timer0, 1
 
 	LPC_TIM1 ->MCR = (1 << SBIT_MR0I) | (1 << SBIT_MR0R); // Clear TC on MR0 match and Generate Interrupt
 	LPC_TIM1 ->PR = getPrescalarForUs(PCLK_TIMER1); // Prescalar for 1us
 	LPC_TIM1 ->MR0 = MiliToMicroSec(500); // 500ms delay
 	LPC_TIM1 ->TCR = (1 << SBIT_CNTEN); // Start timer by setting the Counter Enable
 
-	NVIC_ClearPendingIRQ(EINT3_IRQn);
-	NVIC_ClearPendingIRQ(TIMER1_IRQn);
+    NVIC_ClearPendingIRQ(EINT3_IRQn);
+    NVIC_EnableIRQ(EINT3_IRQn);
 
-	NVIC_EnableIRQ(EINT3_IRQn); // Enable EINT3 interrupt
-	NVIC_EnableIRQ(TIMER1_IRQn); // Enable Timer1 interrupt
+    NVIC_ClearPendingIRQ(TIMER1_IRQn);
+    NVIC_EnableIRQ(TIMER1_IRQn);
 
 	NVIC_SetPriorityGrouping(5);
 	NVIC_SetPriority(TIMER1_IRQn, 0x04);
@@ -432,12 +465,6 @@ void sendUARTMessage(int typeOfMsg) {
 }
 
 void checkBattery() {
-	uint8_t sw4 = (GPIO_ReadValue(1) >> 31) & 0x01;
-	if (sw4 == 0) {
-		batteryLevel = batteryLevel + 6.25 <= 100 ? batteryLevel + 6.25 : 100;
-		interval = 0;
-		Timer0_Wait(200);
-	}
 	if (interval >= 10000) {
 		batteryLevel = batteryLevel - 12.5 >= 0 ? batteryLevel - 12.5 : 0;
 		interval = 0;
@@ -454,19 +481,27 @@ void checkBattery() {
 	numLedToTurnOff = NUM_LED - batteryLevel / PERCENT_PER_LED;
 }
 
-// EINT3 Interrupt Handler
 void EINT3_IRQHandler() {
-	// Determine whether GPIO Interrupt P2.10 has occurred
-	if ((LPC_GPIOINT ->IO2IntStatF >> 10) & 0x1) {
-		static uint32_t lastTicks = 0;
-		uint32_t currTicks = getTicks();
-		if (currTicks - lastTicks <= 1000 && mode == ORBIT)
-			setMode(ORBIT_TO_LANDING);
-		lastTicks = currTicks;
-		// Clear GPIO Interrupt P2.10
-		LPC_GPIOINT ->IO2IntClr = 1 << 10;
+	// SW3 interrupt
+	if ((LPC_GPIOINT ->IO0IntStatR >> 4) & 0x1) {
+		if (mode == EXPLORING || mode == SLEEPING) {
+			batteryLevel = batteryLevel+6.25 <= 100 ? batteryLevel+6.25 : 100;
+			interval = 0;
+		}
+		LPC_GPIOINT->IO0IntClr = 1 << 4;
 	}
-	// Determine whether GPIO Interrupt P2.5 has occurred
+
+	// SW4 interrupt
+	if ((LPC_GPIOINT->IO2IntStatF>>10)& 0x1) {
+    	static uint32_t lastTicks = 0;
+    	uint32_t currTicks = getTicks();
+    	if (currTicks - lastTicks <= 1000 && mode == ORBIT) setMode(ORBIT_TO_LANDING);
+    	lastTicks = currTicks;
+        // Clear GPIO Interrupt P2.10
+        LPC_GPIOINT->IO2IntClr = 1<<10;
+	}
+
+	// Determine if GPIO Interrupt P2.5 has occurred
 //	if ((LPC_GPIOINT->IO2IntStatF>>5)& 0x1) {
 //		if(light_getIrqStatus()) {
 //			printf("Light Lux: \n", light_read());
