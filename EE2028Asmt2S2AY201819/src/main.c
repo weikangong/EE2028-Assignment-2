@@ -35,40 +35,83 @@
 #define PERCENT_PER_LED 6.25
 
 #define TILT_THRESHOLD 30
+#define CHAR_HEIGHT 12
+#define LIGHT_THRESHOLD 30
 
-volatile uint32_t msTicks;
+#define TEMP_COUNT 500
+#define TEMP_CONSTANT 20
+#define TEMP_DIVIDER 10
+#define TEMP_K_TO_C_CONSTANT 2731
+
 typedef enum {
-	ORBIT, ORBIT_TO_LANDING, LANDING, EXPLORING, SLEEPING
+	ORBITING,
+	ORBITING_TO_LANDING,
+	LANDING,
+	EXPLORING,
+	SLEEPING
 } mode_type;
+volatile uint32_t msTicks;
 volatile mode_type mode;
 int8_t x[1];
 int8_t y[1];
 int8_t z[1];
-uint8_t isModeChange;
-uint32_t interval;
-uint8_t flag = 0;
+uint32_t batteryInterval; // In ms
+uint32_t transmissionInterval; // In ms
 uint8_t numLedToTurnOff;
 float batteryLevel = 100.0;
-uint8_t FLAG = 0;
+static uint32_t t1 = 0;
+static uint32_t t2 = 0;
 
-const uint8_t CHAR_HEIGHT = 12;
-const uint32_t LIGHT_THRESHOLD = 30;
-const uint8_t ORBIT_MODE_MESSAGE[][40] = { { 'O', 'r', 'b', 'i', 't', 'i', 'n',
-		'g', ' ', 'M', 'o', 'd', 'e', '.' }, { 'P', 'r', 'e', 's', 's', ' ',
-		'S', 'W', '3', ' ', 't', 'o' }, { 'L', 'a', 'n', 'd' }, { ' ' },
-		{ ' ' }, { ' ' } };
-const uint8_t ORBIT_TO_LANDING_MODE_MESSAGE[][40] = { { 'E', 'N', 'T', 'E', 'R',
-		'I', 'N', 'G' }, { 'L', 'A', 'N', 'D', 'I', 'N', 'G', ' ', 'M', 'O',
-		'D', 'E' }, { ' ' }, { ' ' }, { ' ' }, { ' ' } };
-uint8_t LANDING_MODE_MESSAGE[][40] = { { 'L', 'A', 'N', 'D', 'I', 'N', 'G' }, {
-		' ' }, { ' ' }, { ' ' }, { ' ' }, { ' ' } };
-uint8_t EXPLORING_MODE_MESSAGE[][40] = { { 'E', 'X', 'P', 'L', 'O', 'R', 'I',
-		'N', 'G' }, { ' ' }, { ' ' }, { ' ' }, { ' ' }, { ' ' } };
+static uint8_t CLEAR_SCREEN_FLAG;
+static uint8_t ORBITING_FLAG = 1;
+static uint8_t ORBITING_TO_LANDING_FLAG = 0;
+static uint8_t LANDING_FLAG = 1;
+static uint8_t TILT_THRESHOLD_FLAG = 0;
+static uint8_t TILT_CLEAR_FLAG = 0;
+static uint8_t LIGHT_THRESHOLD_FLAG = 0;
+static uint8_t ACC_FLAG = 0;
+static uint8_t TEMP_STATE_FLAG = 0;
+static uint8_t TEMP_CHANGE_FLAG = 0;
+
+static uint8_t ORBIT_MODE_MESSAGE[][40] = {
+		"Orbiting Mode",
+		"Press SW3 to",
+		"land",
+		""
+		""
+};
+static uint8_t ORBITING_TO_LANDING_MODE_MESSAGE[][40] ={
+		"ENTERING",
+		"LANDING MODE",
+		"",
+		"",
+		"",
+		""
+};
+static uint8_t LANDING_MODE_MESSAGE[][40] = {
+		"LANDING",
+		"",
+		"",
+		"",
+		"",
+		""
+};
+static uint8_t EXPLORING_MODE_MESSAGE[][40] = {
+		"EXPLORING",
+		"",
+		"",
+		"",
+		"",
+		""
+};
 uint8_t SLEEPING_MODE_MESSAGE[][40] = {
-		{ 'S', 'L', 'E', 'E', 'P', 'I', 'N', 'G' }, { ' ' }, { ' ' }, { ' ' }, {
-				' ' }, { ' ' } };
-const uint8_t invertedNums[] = { 0x24, 0x7D, 0xE0, 0x70, 0x39, 0x32, 0x23, 0x7C,
-		0x20, 0x38, };
+		"SLEEPING",
+		"",
+		"",
+		"",
+		"",
+		""
+};
 
 static unsigned char TILT_THRESHOLD_TXT[] = "Poor Landing Attitude \r\n";
 static unsigned char TILT_CLEAR_TXT[] = "Safe to Land! \r\n";
@@ -76,18 +119,11 @@ static unsigned char ORBITING_TXT[] = "Start Orbiting, waiting for Landing \r\n"
 static unsigned char LANDING_TXT[] = "LANDING Mode \r\n";
 static unsigned char EXPLORING_TXT[] = "EXPLORING Mode \r\n";
 static unsigned char SLEEPING_TXT[] = "System is sleeping \r\n";
-static unsigned char ACC_MSG[] = "";
-static unsigned char LIGHT_THRESHOLD_TXT[] = "Light threshold meet. \r\n";
-const uint8_t LIGHT_MSG[][40] = { ' ' };
+static unsigned char LIGHT_THRESHOLD_TXT[] = "Light threshold met \r\n";
+static unsigned char CLEAR_SCREEN_TXT[] = "\x1b[2J";
 
-static uint8_t ORBITING_FLAG = 1;
-static uint8_t LANDING_FLAG = 1;
-static uint8_t EXPLORING_FLAG = 1;
-static uint8_t SLEEPING_FLAG = 1;
-static uint8_t TILT_FLAG = 1;
-static uint8_t TILT_CLEAR_FLAG = 0;
-static uint8_t ACC_FLAG = 0;
-static uint8_t EXPLORING_5S_FLAG = 0;
+const uint8_t invertedNums[] = { 0x24, 0x7D, 0xE0, 0x70, 0x39, 0x32, 0x23, 0x7C,
+		0x20, 0x38, };
 
 unsigned int getPrescalarForUs(uint8_t timerPclkBit) {
 	unsigned int pclk, prescalarForUs;
@@ -121,15 +157,6 @@ uint32_t getTicks(void) {
 	return msTicks;
 }
 
-uint8_t is_time_passed(int time_to_pass_ms, uint32_t* prev_time) {
-	uint32_t now = getTicks();
-	if (now - *prev_time >= time_to_pass_ms) {
-		*prev_time = now;
-		return 1;
-	}
-	return 0;
-}
-
 static void pinsel_uart3(void) {
 	PINSEL_CFG_Type PinCfg;
 	PinCfg.Funcnum = 2;
@@ -146,7 +173,7 @@ void init_uart(void) {
 	uartCfg.Databits = UART_DATABIT_8;
 	uartCfg.Parity = UART_PARITY_NONE;
 	uartCfg.Stopbits = UART_STOPBIT_1;
-	// Pin select for uart3;
+	// Pin select for uart3
 	pinsel_uart3();
 	// Supply power & setup working parameters for uart3
 	UART_Init(LPC_UART3, &uartCfg);
@@ -241,26 +268,21 @@ static void init_GPIO(void) {
 	PinCfg.Pinnum = 1;
 	PINSEL_ConfigPin(&PinCfg);
 	GPIO_SetDir(2, (1 << 1), 1);
-
-	// Light interrupt: P2.5
-//	PinCfg.Pinnum = 5;
-//	PinCfg.Portnum = 2;
-//	PINSEL_ConfigPin(&PinCfg);
-//	GPIO_SetDir(2,(1<<5),0);
 }
 
 void interrupt_init(void) {
-	// Clear and enable SW4 interrupt
-	LPC_GPIOINT ->IO0IntClr = 1 << 4;
-	LPC_GPIOINT ->IO0IntEnR |= 1 << 4;
-
 	// Clear and enable SW3 interrupt
 	LPC_GPIOINT ->IO2IntClr = 1 << 10;
 	LPC_GPIOINT ->IO2IntEnR |= 1 << 10;
 
-	// Enable P2.5 interrupt
+	// Clear and enable light interrupt
 	LPC_GPIOINT ->IO2IntClr = 1 << 5;
-	LPC_GPIOINT ->IO2IntEnR |= 1 << 5;
+	LPC_GPIOINT ->IO2IntEnF |= 1 << 5;
+
+	LPC_GPIOINT ->IO0IntClr = 1 << 2;
+	LPC_GPIOINT ->IO0IntClr = 1 << 2;
+	LPC_GPIOINT ->IO0IntEnF |= 1 << 2;
+	LPC_GPIOINT ->IO0IntEnR |= 1 << 2;
 
 	// Enable Timer1 interrupt
 	LPC_SC ->PCONP |= (1 << SBIT_TIMER0); // Power ON Timer0, 1
@@ -282,26 +304,31 @@ void interrupt_init(void) {
 
 void init(void) {
 	SysTick_Config(SystemCoreClock / 1000);
+
 	init_ssp();
 	init_i2c();
 	init_GPIO();
+
 	init_uart();
 	led7seg_init();
 	oled_init();
 	acc_init();
 	temp_init(getTicks);
 	light_enable();
-	light_clearIrqStatus();
+	light_setRange(LIGHT_RANGE_4000);
 	light_setLoThreshold(LIGHT_THRESHOLD);
+	light_clearIrqStatus();
 
 	interrupt_init();
 
-	setMode(ORBIT);
+	// Set default mode
+	setMode(ORBITING);
+	sendUARTMessage(ORBITING_TXT);
 }
 
 void setMode(mode_type modeToSet) {
 	mode = modeToSet;
-	isModeChange = 1;
+	CLEAR_SCREEN_FLAG = 1;
 }
 
 void countdown(void) {
@@ -323,52 +350,62 @@ void displayOledMessage(uint8_t message[][40]) {
 	}
 }
 
-uint8_t toggleButton(uint32_t currTicks) {
-	uint32_t nextTicks = getTicks();
-	uint8_t sw3 = 1;
-	while (nextTicks - currTicks <= 1000) {
-		sw3 = (GPIO_ReadValue(2) >> 10) & 0x01;
-		if (sw3 == 0) {
-			return 1;
-		}
-		nextTicks = getTicks();
-	}
-	return 0;
-}
-
-void setAccMessage() {
-	acc_read(x, y, z);
+void checkTiltThreshold() {
 	if ((x[0] / 63.0) > (TILT_THRESHOLD / 60.0)
 			| (y[0] / 63.0) > (TILT_THRESHOLD / 60.0)) {
-		if (TILT_FLAG) {
-			oled_clearScreen(OLED_COLOR_BLACK);
-			sendUARTMessage(5);
-		}
+		if (!TILT_THRESHOLD_FLAG) CLEAR_SCREEN_FLAG = 1;
+		TILT_THRESHOLD_FLAG = 1;
+		ACC_FLAG = 0;
+	} else {
+		if (TILT_THRESHOLD_FLAG) TILT_CLEAR_FLAG = 1;
+		TILT_THRESHOLD_FLAG = 0;
+		ACC_FLAG = 1;
+	}
+}
+
+
+void recordTempTime() {
+	static uint16_t count = 0;
+	if (count == TEMP_COUNT) {
+		t1 = (uint32_t) t2;
+		t2 = getTicks();
+		count = 0;
+		TEMP_CHANGE_FLAG = 1;
+	} else {
+		count++;
+	}
+}
+
+int32_t readTemp() {
+	static int32_t temp = 0;
+	if (TEMP_CHANGE_FLAG) {
+		uint32_t diff;
+		if (t2 > t1) diff = t2 - t1;
+		else diff = (0xFFFFFFFF - t1 + 1) + t2;
+
+		temp = ((TEMP_CONSTANT * diff) / TEMP_DIVIDER
+				- TEMP_K_TO_C_CONSTANT);
+		TEMP_CHANGE_FLAG = 0;
+	}
+
+	return temp;
+}
+
+void setAccAndLightMessage() {
+	if (TILT_THRESHOLD_FLAG) {
 		sprintf(LANDING_MODE_MESSAGE[1], "Poor");
 		sprintf(LANDING_MODE_MESSAGE[2], "Landing");
 		sprintf(LANDING_MODE_MESSAGE[3], "Altitude");
-		TILT_CLEAR_FLAG = 1;
 	} else {
 		sprintf(LANDING_MODE_MESSAGE[1], "Acc-X: %2.2f g\r", x[0] / 63.0);
 		sprintf(LANDING_MODE_MESSAGE[2], "Acc-Y: %2.2f g\r", y[0] / 63.0);
-		sprintf(LANDING_MODE_MESSAGE[3], "Acc-Z: %2.2f g\r\n", z[0] / 63.0);
-		TILT_FLAG = 1;
-		if (TILT_CLEAR_FLAG)
-			sendUARTMessage(7);
-		if (ACC_FLAG)
-			//sprintf(ACC_MSG, "%s \r%s \r%s \r\n", LANDING_MODE_MESSAGE[1], LANDING_MODE_MESSAGE[2], LANDING_MODE_MESSAGE[3]);
-			sendUARTMessage(6);
-
+		sprintf(LANDING_MODE_MESSAGE[3], "Acc-Z: %2.2f g\r", z[0] / 63.0);
+		sprintf(LANDING_MODE_MESSAGE[4], "Light: %lu lux\r\n", (unsigned long) light_read());
 	}
 }
 
 void setTempMessage() {
-	uint32_t temp = temp_read();
-	printf("temp: %d %f\n", temp, temp / 10.0);
-	sprintf(EXPLORING_MODE_MESSAGE[2], "Temp: %2.1f deg  \r\n", temp / 10.0);
-//	msg = "Temp %2.1f deg \r\n", temp/10.0;
-//	UART_Send(LPC_UART3, (uint8_t *)msg , strlen(msg), BLOCKING);
-
+	sprintf(EXPLORING_MODE_MESSAGE[2], "Temp: %2.1f deg  \r\n", readTemp() / 10.0);
 }
 
 void setBatteryMessage() {
@@ -376,159 +413,91 @@ void setBatteryMessage() {
 	sprintf(SLEEPING_MODE_MESSAGE[1], "Batt: %2.2f%%   ", batteryLevel);
 }
 
-void sendUARTMessage(int typeOfMsg) {
-	switch (typeOfMsg) {
-	case 1:
-		if (ORBITING_FLAG) {
-			UART_Send(LPC_UART3, (uint8_t *) ORBITING_TXT, strlen(ORBITING_TXT),
-					BLOCKING);
-			ORBITING_FLAG = 0;
-		}
-		break;
-	case 2:
-		if (LANDING_FLAG) {
-			printf("landing %d \n:", LANDING_FLAG);
-			UART_Send(LPC_UART3, (uint8_t *) LANDING_TXT, strlen(LANDING_TXT),
-					BLOCKING);
-			LANDING_FLAG = 0;
-		}
-		break;
-	case 3:
-		if (EXPLORING_FLAG) {
-			UART_Send(LPC_UART3, (uint8_t *) EXPLORING_TXT,
-					strlen(EXPLORING_TXT), BLOCKING);
-			EXPLORING_FLAG = 0;
-		}
-		break;
-	case 4:
-		if (SLEEPING_FLAG) {
-			UART_Send(LPC_UART3, (uint8_t *) SLEEPING_TXT, strlen(SLEEPING_TXT),
-					BLOCKING);
-			SLEEPING_FLAG = 0;
-		}
-		break;
-	case 5:
-		if (TILT_FLAG) {
-			UART_Send(LPC_UART3, (uint8_t *) TILT_THRESHOLD_TXT,
-					strlen(TILT_THRESHOLD_TXT), BLOCKING);
-			//TILT_FLAG = 0;
-		}
-		break;
-	case 6:
-		if (ACC_FLAG) {
-			UART_Send(LPC_UART3, (uint8_t *) LANDING_MODE_MESSAGE[1],
-					strlen(LANDING_MODE_MESSAGE[1]), BLOCKING);
-			UART_Send(LPC_UART3, (uint8_t *) LANDING_MODE_MESSAGE[2],
-					strlen(LANDING_MODE_MESSAGE[2]), BLOCKING);
-			UART_Send(LPC_UART3, (uint8_t *) LANDING_MODE_MESSAGE[3],
-					strlen(LANDING_MODE_MESSAGE[3]), BLOCKING);
-			UART_Send(LPC_UART3, (uint8_t *) LANDING_MODE_MESSAGE[4],
-					strlen(LANDING_MODE_MESSAGE[4]), BLOCKING);
-			ACC_FLAG = 0;
-		}
-		break;
-	case 7:
-		if (TILT_CLEAR_FLAG) {
-			UART_Send(LPC_UART3, (uint8_t *) TILT_CLEAR_TXT,
-					strlen(TILT_CLEAR_TXT), BLOCKING);
-			TILT_CLEAR_FLAG = 0;
-		}
-		break;
-	case 8:
-		UART_Send(LPC_UART3, (uint8_t *) LIGHT_THRESHOLD_TXT,
-				strlen(LIGHT_THRESHOLD_TXT), BLOCKING);
-		break;
-	case 9:
-		if (EXPLORING_5S_FLAG) {
-			UART_Send(LPC_UART3, (uint8_t *) EXPLORING_MODE_MESSAGE[1],
-					strlen(EXPLORING_MODE_MESSAGE[1]), BLOCKING);
-			UART_Send(LPC_UART3, (uint8_t *) EXPLORING_MODE_MESSAGE[2],
-					strlen(EXPLORING_MODE_MESSAGE[2]), BLOCKING);
-			EXPLORING_5S_FLAG = 0;
-		}
-		break;
-	}
+void sendUARTMessage(uint8_t *message) {
+	UART_Send(LPC_UART3, (uint8_t *) message,
+			strlen(message), BLOCKING);
 }
 
 void checkBattery() {
 	uint8_t sw4 = (GPIO_ReadValue(1) >> 31) & 0x01;
 	if (sw4 == 0) {
 		batteryLevel = batteryLevel + 6.25 <= 100 ? batteryLevel + 6.25 : 100;
-		interval = 0;
+		batteryInterval = 0;
 		Timer0_Wait(200);
 	}
-	if (interval >= 10000) {
+
+	if (batteryInterval >= 10000) {
 		batteryLevel = batteryLevel - 12.5 >= 0 ? batteryLevel - 12.5 : 0;
-		interval = 0;
+		batteryInterval = 0;
 	}
 
 	if (batteryLevel <= 12.5 && mode != SLEEPING) {
 		setMode(SLEEPING);
-		SLEEPING_FLAG = 1;
+		sendUARTMessage(SLEEPING_TXT);
 	}
+
 	if (batteryLevel > 12.5 && mode != EXPLORING) {
 		setMode(EXPLORING);
-		EXPLORING_FLAG = 1;
+		sendUARTMessage(EXPLORING_TXT);
 	}
+
 	numLedToTurnOff = NUM_LED - batteryLevel / PERCENT_PER_LED;
 }
 
 void EINT3_IRQHandler() {
-	// SW4 interrupt
-	if ((LPC_GPIOINT ->IO0IntStatR >> 4) & 0x1) {
-		if (mode == EXPLORING || mode == SLEEPING) {
-			batteryLevel =
-					batteryLevel + 6.25 <= 100 ? batteryLevel + 6.25 : 100;
-			interval = 0;
-		}
-		LPC_GPIOINT ->IO0IntClr = 1 << 4;
-	}
-
 	// SW3 interrupt
 	if ((LPC_GPIOINT ->IO2IntStatR >> 10) & 0x1) {
 		static uint32_t lastTicks = 0;
 		uint32_t currTicks = getTicks();
-		if (currTicks - lastTicks <= 1000 && mode == ORBIT)
-			setMode(ORBIT_TO_LANDING);
+		if (currTicks - lastTicks <= 1000 && mode == ORBITING)
+			ORBITING_TO_LANDING_FLAG = 1;
 		lastTicks = currTicks;
-		// Clear GPIO Interrupt P2.10
 		LPC_GPIOINT ->IO2IntClr = 1 << 10;
 	}
 
-	// Determine if GPIO Interrupt P2.5 has occurred
-//	if ((LPC_GPIOINT->IO2IntStatF>>5)& 0x1) {
-//		if(light_getIrqStatus()) {
-//			printf("Light Lux: \n", light_read());
-//			if (mode == LANDING) setMode(EXPLORING);
-//			light_clearIrqStatus(); //Clear lightsensor interrupt first before clearing gpio int
-//		}
-//		light_setLoThreshold(LIGHT_THRESHOLD);
-//		LPC_GPIOINT->IO2IntClr = 1<<5;
-//    	printf("last line\n");
-//	}
+	// Light interrupt
+	if ((LPC_GPIOINT ->IO2IntStatF >> 5) & 0x1) {
+		if(light_getIrqStatus()) {
+			if (mode == LANDING) LIGHT_THRESHOLD_FLAG = 1;
+			light_clearIrqStatus();
+		}
+		LPC_GPIOINT->IO2IntClr = 1<<5;
+	}
+
+	// Temperature interrupt
+	if ((LPC_GPIOINT ->IO0IntStatR >> 2) & 0x1) {
+		if (!TEMP_STATE_FLAG) {
+			recordTempTime();
+			TEMP_STATE_FLAG = 1;
+		}
+		LPC_GPIOINT ->IO0IntClr = 1 << 2;
+	}
+
+	if ((LPC_GPIOINT ->IO0IntStatF >> 2) & 0x1) {
+		TEMP_STATE_FLAG = 0;
+		LPC_GPIOINT ->IO0IntClr = 1 << 2;
+	}
 }
 
 void TIMER1_IRQHandler() {
 	LPC_TIM1 ->IR = LPC_TIM1 ->IR; // Clear Timer1 interrupt
-	uint32_t isRed = (GPIO_ReadValue(2) >> 0) & 0x01;
 	uint32_t isBlue = (GPIO_ReadValue(0) >> 26) & 0x01;
 	switch (mode) {
-	case ORBIT: // BLINK_BLUE
-		interval = 0;
-		if (isBlue)
-			GPIO_ClearValue(0, 1 << 26);
-		else
-			GPIO_SetValue(0, (1 << 26));
+	case ORBITING: // BLINK_BLUE
+		batteryInterval = 0;
+		transmissionInterval = 0;
+		if (isBlue) GPIO_ClearValue(0, 1 << 26);
+		else GPIO_SetValue(0, (1 << 26));
 		break;
-	case ORBIT_TO_LANDING: // BLINK_BLUE
-		interval = 0;
-		if (isBlue)
-			GPIO_ClearValue(0, 1 << 26);
-		else
-			GPIO_SetValue(0, (1 << 26));
+	case ORBITING_TO_LANDING: // BLINK_BLUE
+		batteryInterval = 0;
+		transmissionInterval = 0;
+		if (isBlue) GPIO_ClearValue(0, 1 << 26);
+		else GPIO_SetValue(0, (1 << 26));
 		break;
 	case LANDING: // ALTERNATE_LED
-		interval = 0;
+		batteryInterval = 0;
+		transmissionInterval += 500;
 		if (isBlue) {
 			GPIO_ClearValue(0, 1 << 26);
 			GPIO_SetValue(2, 1);
@@ -536,80 +505,121 @@ void TIMER1_IRQHandler() {
 			GPIO_SetValue(0, (1 << 26));
 			GPIO_ClearValue(2, 1 << 0);
 		}
-//			if (isBlue) GPIO_ClearValue(0, 1<<26);
-//			else GPIO_SetValue(0, (1<<26));
-//			if (isRed) GPIO_ClearValue(2, 1<<0);
-//			else GPIO_SetValue(2, 1);
 		break;
-	case EXPLORING: // BLUE
-		interval += 500;
+	case EXPLORING:
+		batteryInterval += 500;
+		transmissionInterval += 500;
+		// BLUE
 		GPIO_SetValue(0, (1 << 26));
 		GPIO_ClearValue(2, 1 << 0);
 		break;
-	case SLEEPING: // BLUE
-		interval += 500;
+	case SLEEPING:
+		batteryInterval += 500;
+		transmissionInterval = 0;
+		// BLUE
 		GPIO_SetValue(0, (1 << 26));
 		GPIO_ClearValue(2, 1 << 0);
 		break;
 	default:
-		interval = 0;
+		batteryInterval = 0;
+		transmissionInterval = 0;
 		break;
 	}
 }
 
+void orbiting() {
+	displayOledMessage(ORBIT_MODE_MESSAGE);
+	led7seg_setChar(0x24, 1); // Inverted O
+	if (ORBITING_TO_LANDING_FLAG) setMode(ORBITING_TO_LANDING);
+}
+
+void orbitingToLanding() {
+	displayOledMessage(ORBITING_TO_LANDING_MODE_MESSAGE);
+	countdown();
+	setMode(LANDING);
+	sendUARTMessage(LANDING_TXT);
+}
+
+void landing() {
+	acc_read(x, y, z);
+	checkTiltThreshold();
+	setAccAndLightMessage();
+	displayOledMessage(LANDING_MODE_MESSAGE);
+	led7seg_setChar(0xA7, 1); // Inverted L
+
+	if (TILT_THRESHOLD_FLAG) {
+		sendUARTMessage(TILT_THRESHOLD_TXT);
+	} else if (TILT_CLEAR_FLAG) {
+		sendUARTMessage(CLEAR_SCREEN_TXT);
+		sendUARTMessage(TILT_CLEAR_TXT);
+		TILT_CLEAR_FLAG = 0;
+	}
+
+	if (transmissionInterval >= 5000 && !TILT_THRESHOLD_FLAG) {
+		sendUARTMessage(LANDING_MODE_MESSAGE[1]);
+		sendUARTMessage(LANDING_MODE_MESSAGE[2]);
+		sendUARTMessage(LANDING_MODE_MESSAGE[3]);
+		sendUARTMessage(LANDING_MODE_MESSAGE[4]);
+		transmissionInterval = 0;
+	}
+
+	if (LIGHT_THRESHOLD_FLAG) {
+		setMode(EXPLORING);
+		sendUARTMessage(LIGHT_THRESHOLD_TXT);
+		sendUARTMessage(EXPLORING_TXT);
+	}
+}
+
+void exploring() {
+	setTempMessage();
+	checkBattery();
+	setBatteryMessage();
+	displayOledMessage(EXPLORING_MODE_MESSAGE);
+	led7seg_setChar(0xA2, 1); // Inverted E
+	pca9532_setLeds(0xFFFF >> numLedToTurnOff, 0xFFFF);
+
+	if (transmissionInterval >= 5000) {
+		sendUARTMessage(EXPLORING_MODE_MESSAGE[1]);
+		sendUARTMessage(EXPLORING_MODE_MESSAGE[2]);
+		transmissionInterval = 0;
+	}
+}
+
+void sleeping() {
+	checkBattery();
+	setBatteryMessage();
+	displayOledMessage(SLEEPING_MODE_MESSAGE);
+	led7seg_setChar(0x32, 1); // Inverted S
+	pca9532_setLeds(0xFFFF >> numLedToTurnOff, 0xFFFF);
+}
+
 int main() {
 	init();
-	static uint32_t prev_update_time = 0;
 
 	while (1) {
-		if (isModeChange == 1) {
+		if (CLEAR_SCREEN_FLAG) {
 			oled_clearScreen(OLED_COLOR_BLACK);
-			isModeChange = 0;
+			CLEAR_SCREEN_FLAG = 0;
 		}
 
-		if (mode == ORBIT) {
-			displayOledMessage(ORBIT_MODE_MESSAGE);
-			led7seg_setChar(0x24, 1); // Inverted O
-			sendUARTMessage(1);
-		} else if (mode == ORBIT_TO_LANDING) {
-			displayOledMessage(ORBIT_TO_LANDING_MODE_MESSAGE);
-			countdown();
-			setMode(LANDING);
-		} else if (mode == LANDING) {
-			sendUARTMessage(2);
-			if (is_time_passed(5000, &prev_update_time)) {
-				sprintf(LANDING_MODE_MESSAGE[4], "Light env: %lu lux\r\n",
-						(unsigned long) light_read());
-				ACC_FLAG = 1;
-			}
-			setAccMessage();
-			displayOledMessage(LANDING_MODE_MESSAGE);
-			led7seg_setChar(0xA7, 1); // Inverted L
-			if (light_read() < LIGHT_THRESHOLD) {
-				sendUARTMessage(8);
-				prev_update_time = 0;
-				setMode(EXPLORING);
-			}
-		} else if (mode == EXPLORING) {
-			printf("temp: %d\n", temp_read());
-			setTempMessage();
-			checkBattery();
-			setBatteryMessage();
-			displayOledMessage(EXPLORING_MODE_MESSAGE);
-			sendUARTMessage(3);
-			if (is_time_passed(5000, &prev_update_time)) {
-				EXPLORING_5S_FLAG = 1;
-				sendUARTMessage(9);
-			}
-			led7seg_setChar(0xA2, 1); // Inverted E
-			pca9532_setLeds(0xFFFF >> numLedToTurnOff, 0xFFFF);
-		} else if (mode == SLEEPING) {
-			sendUARTMessage(4);
-			checkBattery();
-			setBatteryMessage();
-			displayOledMessage(SLEEPING_MODE_MESSAGE);
-			led7seg_setChar(0x32, 1);
-			pca9532_setLeds(0xFFFF >> numLedToTurnOff, 0xFFFF);
+		switch (mode) {
+			case ORBITING:
+				orbiting();
+				break;
+			case ORBITING_TO_LANDING:
+				orbitingToLanding();
+				break;
+			case LANDING:
+				landing();
+				break;
+			case EXPLORING:
+				exploring();
+				break;
+			case SLEEPING:
+				sleeping();
+				break;
+			default:
+				break;
 		}
 	}
 }
