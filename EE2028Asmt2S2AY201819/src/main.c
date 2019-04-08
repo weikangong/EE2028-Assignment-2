@@ -241,9 +241,9 @@ void interrupt_init(void) {
 	LPC_GPIOINT ->IO2IntClr = 1 << 10;
 	LPC_GPIOINT ->IO2IntEnR |= 1 << 10;
 
-	// Clear and enable light interrupt
-	LPC_GPIOINT ->IO2IntClr = 1 << 5;
-	LPC_GPIOINT ->IO2IntEnF |= 1 << 5;
+//	// Clear and enable light interrupt
+//	LPC_GPIOINT ->IO2IntClr = 1 << 5;
+//	LPC_GPIOINT ->IO2IntEnF |= 1 << 5;
 
 	LPC_GPIOINT ->IO0IntClr = 1 << 2;
 	LPC_GPIOINT ->IO0IntClr = 1 << 2;
@@ -263,7 +263,9 @@ void interrupt_init(void) {
 
 	NVIC_ClearPendingIRQ(TIMER1_IRQn);
 	NVIC_EnableIRQ(TIMER1_IRQn);
-
+//
+//	NVIC_SetPriorityGrouping(5);
+//	NVIC_SetPriority(TIMER1_IRQn, 0x04);
 }
 
 void init(void) {
@@ -288,6 +290,7 @@ void init(void) {
 
 	// Set default mode
 	setMode(ORBITING);
+	sendUARTMessage(CLEAR_SCREEN_TXT);
 	sendUARTMessage(ORBITING_TXT);
 }
 
@@ -516,6 +519,9 @@ void orbitingToLanding() {
 }
 
 void landing() {
+	LPC_GPIOINT ->IO2IntEnF |= 1 << 5;
+	light_clearIrqStatus();
+
 	acc_read(x, y, z);
 	checkTiltThreshold();
 	setAccAndLightMessage();
