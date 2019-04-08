@@ -44,11 +44,7 @@
 #define TEMP_K_TO_C_CONSTANT 2731
 
 typedef enum {
-	ORBITING,
-	ORBITING_TO_LANDING,
-	LANDING,
-	EXPLORING,
-	SLEEPING
+	ORBITING, ORBITING_TO_LANDING, LANDING, EXPLORING, SLEEPING
 } mode_type;
 volatile uint32_t msTicks;
 volatile mode_type mode;
@@ -73,45 +69,15 @@ static uint8_t ACC_FLAG = 0;
 static uint8_t TEMP_STATE_FLAG = 0;
 static uint8_t TEMP_CHANGE_FLAG = 0;
 
-static uint8_t ORBIT_MODE_MESSAGE[][40] = {
-		"Orbiting Mode",
-		"Press SW3 to",
-		"land",
-		""
-		""
-};
-static uint8_t ORBITING_TO_LANDING_MODE_MESSAGE[][40] ={
-		"ENTERING",
-		"LANDING MODE",
-		"",
-		"",
-		"",
-		""
-};
-static uint8_t LANDING_MODE_MESSAGE[][40] = {
-		"LANDING",
-		"",
-		"",
-		"",
-		"",
-		""
-};
-static uint8_t EXPLORING_MODE_MESSAGE[][40] = {
-		"EXPLORING",
-		"",
-		"",
-		"",
-		"",
-		""
-};
-uint8_t SLEEPING_MODE_MESSAGE[][40] = {
-		"SLEEPING",
-		"",
-		"",
-		"",
-		"",
-		""
-};
+static uint8_t ORBIT_MODE_MESSAGE[][40] = { "Orbiting Mode", "Press SW3 to",
+		"land", ""
+				"" };
+static uint8_t ORBITING_TO_LANDING_MODE_MESSAGE[][40] = { "ENTERING",
+		"LANDING MODE", "", "", "", "" };
+static uint8_t LANDING_MODE_MESSAGE[][40] = { "LANDING", "", "", "", "", "" };
+static uint8_t EXPLORING_MODE_MESSAGE[][40] =
+		{ "EXPLORING", "", "", "", "", "" };
+uint8_t SLEEPING_MODE_MESSAGE[][40] = { "SLEEPING", "", "", "", "", "" };
 
 static unsigned char TILT_THRESHOLD_TXT[] = "Poor Landing Attitude \r\n";
 static unsigned char TILT_CLEAR_TXT[] = "Safe to Land! \r\n";
@@ -285,7 +251,7 @@ void interrupt_init(void) {
 	LPC_GPIOINT ->IO0IntEnR |= 1 << 2;
 
 	// Enable Timer1 interrupt
-	LPC_SC ->PCONP |= (1 << SBIT_TIMER0); // Power ON Timer0, 1
+	LPC_SC->PCONP |= (1<<SBIT_TIMER0) | (1<<SBIT_TIMER1); // Power ON Timer0, 1
 
 	LPC_TIM1 ->MCR = (1 << SBIT_MR0I) | (1 << SBIT_MR0R); // Clear TC on MR0 match and Generate Interrupt
 	LPC_TIM1 ->PR = getPrescalarForUs(PCLK_TIMER1); // Prescalar for 1us
@@ -298,8 +264,6 @@ void interrupt_init(void) {
 	NVIC_ClearPendingIRQ(TIMER1_IRQn);
 	NVIC_EnableIRQ(TIMER1_IRQn);
 
-	NVIC_SetPriorityGrouping(5);
-	NVIC_SetPriority(TIMER1_IRQn, 0x04);
 }
 
 void init(void) {
@@ -313,6 +277,7 @@ void init(void) {
 	led7seg_init();
 	oled_init();
 	acc_init();
+	acc_setRange(ACC_RANGE_2G);
 	temp_init(getTicks);
 	light_enable();
 	light_setRange(LIGHT_RANGE_4000);
@@ -353,16 +318,17 @@ void displayOledMessage(uint8_t message[][40]) {
 void checkTiltThreshold() {
 	if ((x[0] / 63.0) > (TILT_THRESHOLD / 60.0)
 			| (y[0] / 63.0) > (TILT_THRESHOLD / 60.0)) {
-		if (!TILT_THRESHOLD_FLAG) CLEAR_SCREEN_FLAG = 1;
+		if (!TILT_THRESHOLD_FLAG)
+			CLEAR_SCREEN_FLAG = 1;
 		TILT_THRESHOLD_FLAG = 1;
 		ACC_FLAG = 0;
 	} else {
-		if (TILT_THRESHOLD_FLAG) TILT_CLEAR_FLAG = 1;
+		if (TILT_THRESHOLD_FLAG)
+			TILT_CLEAR_FLAG = 1;
 		TILT_THRESHOLD_FLAG = 0;
 		ACC_FLAG = 1;
 	}
 }
-
 
 void recordTempTime() {
 	static uint16_t count = 0;
@@ -380,11 +346,12 @@ int32_t readTemp() {
 	static int32_t temp = 0;
 	if (TEMP_CHANGE_FLAG) {
 		uint32_t diff;
-		if (t2 > t1) diff = t2 - t1;
-		else diff = (0xFFFFFFFF - t1 + 1) + t2;
+		if (t2 > t1)
+			diff = t2 - t1;
+		else
+			diff = (0xFFFFFFFF - t1 + 1) + t2;
 
-		temp = ((TEMP_CONSTANT * diff) / TEMP_DIVIDER
-				- TEMP_K_TO_C_CONSTANT);
+		temp = ((TEMP_CONSTANT * diff) / TEMP_DIVIDER - TEMP_K_TO_C_CONSTANT);
 		TEMP_CHANGE_FLAG = 0;
 	}
 
@@ -400,12 +367,14 @@ void setAccAndLightMessage() {
 		sprintf(LANDING_MODE_MESSAGE[1], "Acc-X: %2.2f g\r", x[0] / 63.0);
 		sprintf(LANDING_MODE_MESSAGE[2], "Acc-Y: %2.2f g\r", y[0] / 63.0);
 		sprintf(LANDING_MODE_MESSAGE[3], "Acc-Z: %2.2f g\r", z[0] / 63.0);
-		sprintf(LANDING_MODE_MESSAGE[4], "Light: %lu lux\r\n", (unsigned long) light_read());
+		sprintf(LANDING_MODE_MESSAGE[4], "Light: %lu lux\r\n",
+				(unsigned long) light_read());
 	}
 }
 
 void setTempMessage() {
-	sprintf(EXPLORING_MODE_MESSAGE[2], "Temp: %2.1f deg  \r\n", readTemp() / 10.0);
+	sprintf(EXPLORING_MODE_MESSAGE[2], "Temp: %2.1f deg  \r\n",
+			readTemp() / 10.0);
 }
 
 void setBatteryMessage() {
@@ -414,8 +383,7 @@ void setBatteryMessage() {
 }
 
 void sendUARTMessage(uint8_t *message) {
-	UART_Send(LPC_UART3, (uint8_t *) message,
-			strlen(message), BLOCKING);
+	UART_Send(LPC_UART3, (uint8_t *) message, strlen(message), BLOCKING);
 }
 
 void checkBattery() {
@@ -457,11 +425,13 @@ void EINT3_IRQHandler() {
 
 	// Light interrupt
 	if ((LPC_GPIOINT ->IO2IntStatF >> 5) & 0x1) {
-		if(light_getIrqStatus()) {
-			if (mode == LANDING) LIGHT_THRESHOLD_FLAG = 1;
+		if (light_getIrqStatus()) {
+			if (mode == LANDING)
+				LIGHT_THRESHOLD_FLAG = 1;
 			light_clearIrqStatus();
 		}
-		LPC_GPIOINT->IO2IntClr = 1<<5;
+		light_clearIrqStatus();
+		LPC_GPIOINT ->IO2IntClr = 1 << 5;
 	}
 
 	// Temperature interrupt
@@ -486,14 +456,18 @@ void TIMER1_IRQHandler() {
 	case ORBITING: // BLINK_BLUE
 		batteryInterval = 0;
 		transmissionInterval = 0;
-		if (isBlue) GPIO_ClearValue(0, 1 << 26);
-		else GPIO_SetValue(0, (1 << 26));
+		if (isBlue)
+			GPIO_ClearValue(0, 1 << 26);
+		else
+			GPIO_SetValue(0, (1 << 26));
 		break;
 	case ORBITING_TO_LANDING: // BLINK_BLUE
 		batteryInterval = 0;
 		transmissionInterval = 0;
-		if (isBlue) GPIO_ClearValue(0, 1 << 26);
-		else GPIO_SetValue(0, (1 << 26));
+		if (isBlue)
+			GPIO_ClearValue(0, 1 << 26);
+		else
+			GPIO_SetValue(0, (1 << 26));
 		break;
 	case LANDING: // ALTERNATE_LED
 		batteryInterval = 0;
@@ -530,7 +504,8 @@ void TIMER1_IRQHandler() {
 void orbiting() {
 	displayOledMessage(ORBIT_MODE_MESSAGE);
 	led7seg_setChar(0x24, 1); // Inverted O
-	if (ORBITING_TO_LANDING_FLAG) setMode(ORBITING_TO_LANDING);
+	if (ORBITING_TO_LANDING_FLAG)
+		setMode(ORBITING_TO_LANDING);
 }
 
 void orbitingToLanding() {
@@ -564,10 +539,14 @@ void landing() {
 	}
 
 	if (LIGHT_THRESHOLD_FLAG) {
-		setMode(EXPLORING);
+		sendUARTMessage(CLEAR_SCREEN_TXT);
 		sendUARTMessage(LIGHT_THRESHOLD_TXT);
 		sendUARTMessage(EXPLORING_TXT);
+		setMode(EXPLORING);
 	}
+
+	// Disable I2C Interrupt (Pin2.5)
+	LPC_GPIOINT ->IO2IntEnF &= ~(1 << 5);
 }
 
 void exploring() {
@@ -603,23 +582,23 @@ int main() {
 		}
 
 		switch (mode) {
-			case ORBITING:
-				orbiting();
-				break;
-			case ORBITING_TO_LANDING:
-				orbitingToLanding();
-				break;
-			case LANDING:
-				landing();
-				break;
-			case EXPLORING:
-				exploring();
-				break;
-			case SLEEPING:
-				sleeping();
-				break;
-			default:
-				break;
+		case ORBITING:
+			orbiting();
+			break;
+		case ORBITING_TO_LANDING:
+			orbitingToLanding();
+			break;
+		case LANDING:
+			landing();
+			break;
+		case EXPLORING:
+			exploring();
+			break;
+		case SLEEPING:
+			sleeping();
+			break;
+		default:
+			break;
 		}
 	}
 }
